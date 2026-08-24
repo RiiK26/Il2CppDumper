@@ -1,3 +1,0 @@
-#!/bin/bash
-export DOTNET_ROLL_FORWARD=Major
-exec /home/riik/Projects/Il2CppDumper/Il2CppDumper/bin/Release/net8.0/Il2CppDumper "$@"
