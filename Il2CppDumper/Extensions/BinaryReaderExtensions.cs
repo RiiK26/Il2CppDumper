@@ -75,6 +75,10 @@ namespace Il2CppDumper
                 // Yes we treat UInt32.MaxValue (and Int32.MinValue, see ReadCompressedInt32) specially
                 val = uint.MaxValue;
             }
+            else if (read == 0xE8)
+            { 
+                val = 0;
+            }
             else
             {
                 throw new Exception("Invalid compressed integer format");
