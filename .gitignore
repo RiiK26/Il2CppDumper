@@ -362,7 +362,9 @@ MigrationBackup/
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
 
+# Cusom project
 execution/
 output/
+scratch/
 
 *.sh
