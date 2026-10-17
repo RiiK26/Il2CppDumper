@@ -19,49 +19,72 @@ namespace Il2CppDumper
             string metadataPath = null;
             string outputDir = null;
 
-            if (args.Length == 1)
+            var fileArgs = new List<string>();
+            for (int aIdx = 0; aIdx < args.Length; aIdx++)
             {
-                if (args[0] == "-h" || args[0] == "--help" || args[0] == "/?" || args[0] == "/h")
+                var arg = args[aIdx];
+                if (arg == "-h" || arg == "--help" || arg == "/?" || arg == "/h")
                 {
                     ShowHelp();
                     return;
                 }
-            }
-            if (args.Length > 3)
-            {
-                ShowHelp();
-                return;
-            }
-            if (args.Length > 1)
-            {
-                var fileArgs = new List<string>();
-                foreach (var arg in args)
+                else if (arg == "--version" && aIdx + 1 < args.Length)
                 {
-                    if (File.Exists(arg))
+                    if (double.TryParse(args[++aIdx], System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var ver))
                     {
-                        fileArgs.Add(arg);
-                    }
-                    else if (Directory.Exists(arg))
-                    {
-                        outputDir = Path.GetFullPath(arg) + Path.DirectorySeparatorChar;
+                        config.ForceIl2CppVersion = true;
+                        config.ForceVersion = ver;
                     }
                 }
+                else if (arg == "--force-dump")
+                {
+                    config.ForceDump = true;
+                }
+                else if (arg == "--no-struct")
+                {
+                    config.GenerateStruct = false;
+                }
+                else if (arg == "--struct")
+                {
+                    config.GenerateStruct = true;
+                }
+                else if (arg == "--no-dll")
+                {
+                    config.GenerateDummyDll = false;
+                }
+                else if (arg == "--dll")
+                {
+                    config.GenerateDummyDll = true;
+                }
+                else if (File.Exists(arg))
+                {
+                    fileArgs.Add(arg);
+                }
+                else if (Directory.Exists(arg) || arg.EndsWith("/") || arg.EndsWith("\\"))
+                {
+                    outputDir = Path.GetFullPath(arg) + Path.DirectorySeparatorChar;
+                }
+                else
+                {
+                    // Fallback to positional file
+                    fileArgs.Add(arg);
+                }
+            }
 
-                if (fileArgs.Count >= 2)
+            if (fileArgs.Count >= 2)
+            {
+                ClassifyFiles(fileArgs[0], fileArgs[1], out il2cppPath, out metadataPath);
+            }
+            else if (fileArgs.Count == 1 && File.Exists(fileArgs[0]))
+            {
+                var file = File.ReadAllBytes(fileArgs[0]);
+                if (IsExecutableFile(file))
                 {
-                    ClassifyFiles(fileArgs[0], fileArgs[1], out il2cppPath, out metadataPath);
+                    il2cppPath = fileArgs[0];
                 }
-                else if (fileArgs.Count == 1)
+                else
                 {
-                    var file = File.ReadAllBytes(fileArgs[0]);
-                    if (IsExecutableFile(file))
-                    {
-                        il2cppPath = fileArgs[0];
-                    }
-                    else
-                    {
-                        metadataPath = fileArgs[0];
-                    }
+                    metadataPath = fileArgs[0];
                 }
             }
             outputDir ??= AppDomain.CurrentDomain.BaseDirectory;
@@ -124,7 +147,14 @@ namespace Il2CppDumper
 
         static void ShowHelp()
         {
-            Console.WriteLine($"usage: {AppDomain.CurrentDomain.FriendlyName} <executable-file> <global-metadata> <output-directory>");
+            Console.WriteLine($"usage: {AppDomain.CurrentDomain.FriendlyName} <executable-file> <global-metadata> [output-directory] [options]");
+            Console.WriteLine("Options:");
+            Console.WriteLine("  --version <ver>   Force IL2CPP metadata version (e.g. 24.3, 29.0)");
+            Console.WriteLine("  --force-dump      Force memory dump loading");
+            Console.WriteLine("  --no-struct       Skip generating C/C++ struct headers (il2cpp.h)");
+            Console.WriteLine("  --struct          Force generate C/C++ struct headers");
+            Console.WriteLine("  --no-dll          Skip generating DummyDll assemblies");
+            Console.WriteLine("  --dll             Force generate DummyDll assemblies");
         }
 
         private static bool IsExecutableFile(byte[] bytes)
@@ -357,7 +387,7 @@ namespace Il2CppDumper
             Console.WriteLine("Done!");
             if (config.GenerateStruct)
             {
-                Console.WriteLine("Generate struct...");
+                Console.WriteLine("Generating struct...");
                 try
                 {
                     var scriptGenerator = new StructGenerator(executor);

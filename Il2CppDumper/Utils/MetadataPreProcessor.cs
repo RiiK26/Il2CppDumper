@@ -10,10 +10,40 @@ namespace Il2CppDumper
     {
         private const uint StandardMagic = 0xFAB11BAF;
 
-        private static readonly List<ICustomMetadataDeobfuscator> CustomDeobfuscators = new()
+        private static readonly List<ICustomMetadataDeobfuscator> CustomDeobfuscators = new();
+
+        static MetadataPreProcessor()
         {
-            new PixelGun3DDeobfuscator()
-        };
+            DiscoverDeobfuscators();
+        }
+
+        private static void DiscoverDeobfuscators()
+        {
+            try
+            {
+                var deobfuscatorInterface = typeof(ICustomMetadataDeobfuscator);
+                var types = AppDomain.CurrentDomain.GetAssemblies()
+                    .SelectMany(a =>
+                    {
+                        try { return a.GetTypes(); }
+                        catch { return Array.Empty<Type>(); }
+                    })
+                    .Where(t => deobfuscatorInterface.IsAssignableFrom(t) && !t.IsInterface && !t.IsAbstract);
+
+                foreach (var type in types)
+                {
+                    try
+                    {
+                        if (Activator.CreateInstance(type) is ICustomMetadataDeobfuscator instance)
+                        {
+                            RegisterDeobfuscator(instance);
+                        }
+                    }
+                    catch { }
+                }
+            }
+            catch { }
+        }
 
         public static void RegisterDeobfuscator(ICustomMetadataDeobfuscator deobfuscator)
         {

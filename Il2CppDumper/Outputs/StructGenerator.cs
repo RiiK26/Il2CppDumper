@@ -403,57 +403,74 @@ namespace Il2CppDumper
                 var pointer = genericClassList[i];
                 AddGenericClassStruct(pointer);
             }
-            var headerStruct = new StringBuilder();
             foreach (var info in structInfoList)
             {
-                structInfoWithStructName.Add(info.TypeName + "_o", info);
+                structInfoWithStructName[info.TypeName + "_o"] = info;
             }
-            foreach (var info in structInfoList)
-            {
-                headerStruct.Append(RecursionStructInfo(info));
-            }
-            var sb = new StringBuilder();
-            sb.Append(HeaderConstants.GenericHeader);
+
+            string versionHeader;
             if (il2Cpp.Version >= 35)
             {
-                sb.Append(HeaderConstants.HeaderV35Plus);
+                versionHeader = HeaderConstants.HeaderV35Plus;
             }
             else switch (il2Cpp.Version)
             {
                 case 22:
-                    sb.Append(HeaderConstants.HeaderV22);
+                    versionHeader = HeaderConstants.HeaderV22;
                     break;
                 case 23:
                 case 24:
-                    sb.Append(HeaderConstants.HeaderV240);
+                    versionHeader = HeaderConstants.HeaderV240;
                     break;
                 case 24.1:
-                    sb.Append(HeaderConstants.HeaderV241);
+                    versionHeader = HeaderConstants.HeaderV241;
                     break;
                 case 24.2:
                 case 24.3:
                 case 24.4:
                 case 24.5:
-                    sb.Append(HeaderConstants.HeaderV242);
+                    versionHeader = HeaderConstants.HeaderV242;
                     break;
                 case 27:
                 case 27.1:
                 case 27.2:
-                    sb.Append(HeaderConstants.HeaderV27);
+                    versionHeader = HeaderConstants.HeaderV27;
                     break;
                 case 29:
                 case 29.1:
                 case 31:
-                    sb.Append(HeaderConstants.HeaderV29);
+                    versionHeader = HeaderConstants.HeaderV29;
                     break;
                 default:
                     Console.WriteLine($"WARNING: This il2cpp version [{il2Cpp.Version}] does not support generating .h files");
                     return;
             }
-            sb.Append(headerStruct);
-            sb.Append(arrayClassHeader);
-            sb.Append(methodInfoHeader);
-            File.WriteAllText(outputDir + "il2cpp.h", sb.ToString());
+
+            var hPath = Path.Combine(outputDir, "il2cpp.h");
+            using (var writer = new StreamWriter(new FileStream(hPath, FileMode.Create, FileAccess.Write, FileShare.Read, 65536), new UTF8Encoding(false)))
+            {
+                writer.Write(HeaderConstants.GenericHeader);
+                writer.Write(versionHeader);
+
+                // Stream structs directly to disk to maintain low memory profile and avoid OOM crash
+                var inProgress = new HashSet<StructInfo>();
+                foreach (var info in structInfoList)
+                {
+                    WriteStructInfo(writer, info, inProgress);
+                }
+
+                if (arrayClassHeader.Length > 0)
+                {
+                    writer.Write(arrayClassHeader.ToString());
+                    arrayClassHeader.Clear();
+                }
+
+                if (methodInfoHeader.Length > 0)
+                {
+                    writer.Write(methodInfoHeader.ToString());
+                    methodInfoHeader.Clear();
+                }
+            }
         }
 
         private void AddMetadataUsageTypeInfo(ScriptJson json, uint index, ulong address)
@@ -1035,27 +1052,52 @@ namespace Il2CppDumper
             return fixName;
         }
 
-        private string RecursionStructInfo(StructInfo info)
+        private void WriteStructInfo(TextWriter writer, StructInfo info, HashSet<StructInfo> inProgress)
         {
-            if (!structCache.Add(info))
+            if (structCache.Contains(info))
             {
-                return string.Empty;
+                return;
             }
-
-            var sb = new StringBuilder();
-            var pre = new StringBuilder();
+            if (!inProgress.Add(info))
+            {
+                // Circular dependency detected, break cycle
+                return;
+            }
 
             if (info.Parent != null)
             {
                 var parentStructName = info.Parent + "_o";
                 if (structInfoWithStructName.TryGetValue(parentStructName, out var parentInfo))
                 {
-                    pre.Append(RecursionStructInfo(parentInfo));
+                    WriteStructInfo(writer, parentInfo, inProgress);
                 }
-                sb.Append($"struct {info.TypeName}_Fields : {info.Parent}_Fields {{\n");
-                // C style
-                //sb.Append($"struct {info.TypeName}_Fields {{\n");
-                //sb.Append($"\t{info.Parent}_Fields _;\n");
+            }
+
+            foreach (var field in info.Fields)
+            {
+                if (field.IsValueType && structInfoWithStructName.TryGetValue(field.FieldTypeName, out var fieldInfo))
+                {
+                    WriteStructInfo(writer, fieldInfo, inProgress);
+                }
+            }
+
+            if (info.StaticFields.Count > 0)
+            {
+                foreach (var field in info.StaticFields)
+                {
+                    if (field.IsValueType && structInfoWithStructName.TryGetValue(field.FieldTypeName, out var fieldInfo))
+                    {
+                        WriteStructInfo(writer, fieldInfo, inProgress);
+                    }
+                }
+            }
+
+            structCache.Add(info);
+            inProgress.Remove(info);
+
+            if (info.Parent != null)
+            {
+                writer.Write($"struct {info.TypeName}_Fields : {info.Parent}_Fields {{\n");
             }
             else
             {
@@ -1063,137 +1105,127 @@ namespace Il2CppDumper
                 {
                     if (il2Cpp.Is32Bit)
                     {
-                        sb.Append($"struct __declspec(align(4)) {info.TypeName}_Fields {{\n");
+                        writer.Write($"struct __declspec(align(4)) {info.TypeName}_Fields {{\n");
                     }
                     else
                     {
-                        sb.Append($"struct __declspec(align(8)) {info.TypeName}_Fields {{\n");
+                        writer.Write($"struct __declspec(align(8)) {info.TypeName}_Fields {{\n");
                     }
                 }
                 else
                 {
-                    sb.Append($"struct {info.TypeName}_Fields {{\n");
+                    writer.Write($"struct {info.TypeName}_Fields {{\n");
                 }
             }
             foreach (var field in info.Fields)
             {
-                if (field.IsValueType && structInfoWithStructName.TryGetValue(field.FieldTypeName, out var fieldInfo))
-                {
-                    pre.Append(RecursionStructInfo(fieldInfo));
-                }
                 if (field.IsCustomType)
                 {
-                    sb.Append($"\tstruct {field.FieldTypeName} {field.FieldName};\n");
+                    writer.Write($"\tstruct {field.FieldTypeName} {field.FieldName};\n");
                 }
                 else
                 {
-                    sb.Append($"\t{field.FieldTypeName} {field.FieldName};\n");
+                    writer.Write($"\t{field.FieldTypeName} {field.FieldName};\n");
                 }
             }
-            sb.Append("};\n");
+            writer.Write("};\n");
 
             if (info.RGCTXs.Count > 0)
             {
-                sb.Append($"struct {info.TypeName}_RGCTXs {{\n");
+                writer.Write($"struct {info.TypeName}_RGCTXs {{\n");
                 for (int i = 0; i < info.RGCTXs.Count; i++)
                 {
                     var rgctx = info.RGCTXs[i];
                     switch (rgctx.Type)
                     {
                         case Il2CppRGCTXDataType.IL2CPP_RGCTX_DATA_TYPE:
-                            sb.Append($"\tIl2CppType* _{i}_{rgctx.TypeName};\n");
+                            writer.Write($"\tIl2CppType* _{i}_{rgctx.TypeName};\n");
                             break;
                         case Il2CppRGCTXDataType.IL2CPP_RGCTX_DATA_CLASS:
-                            sb.Append($"\tIl2CppClass* _{i}_{rgctx.ClassName};\n");
+                            writer.Write($"\tIl2CppClass* _{i}_{rgctx.ClassName};\n");
                             break;
                         case Il2CppRGCTXDataType.IL2CPP_RGCTX_DATA_METHOD:
-                            sb.Append($"\tMethodInfo* _{i}_{rgctx.MethodName};\n");
+                            writer.Write($"\tMethodInfo* _{i}_{rgctx.MethodName};\n");
                             break;
                     }
                 }
-                sb.Append("};\n");
+                writer.Write("};\n");
             }
 
             if (info.VTableMethod.Length > 0)
             {
-                sb.Append($"struct {info.TypeName}_VTable {{\n");
+                writer.Write($"struct {info.TypeName}_VTable {{\n");
                 for (int i = 0; i < info.VTableMethod.Length; i++)
                 {
-                    sb.Append($"\tVirtualInvokeData _{i}_");
+                    writer.Write($"\tVirtualInvokeData _{i}_");
                     var method = info.VTableMethod[i];
                     if (method != null)
                     {
-                        sb.Append(method.MethodName);
+                        writer.Write(method.MethodName);
                     }
                     else
                     {
-                        sb.Append("unknown");
+                        writer.Write("unknown");
                     }
-                    sb.Append(";\n");
+                    writer.Write(";\n");
                 }
-                sb.Append("};\n");
+                writer.Write("};\n");
             }
 
-            sb.Append($"struct {info.TypeName}_c {{\n");
-            sb.Append($"\tIl2CppClass_1 _1;\n");
+            writer.Write($"struct {info.TypeName}_c {{\n");
+            writer.Write($"\tIl2CppClass_1 _1;\n");
             if (info.StaticFields.Count > 0)
             {
-                sb.Append($"\tstruct {info.TypeName}_StaticFields* static_fields;\n");
+                writer.Write($"\tstruct {info.TypeName}_StaticFields* static_fields;\n");
             }
             else
             {
-                sb.Append("\tvoid* static_fields;\n");
+                writer.Write("\tvoid* static_fields;\n");
             }
             if (info.RGCTXs.Count > 0)
             {
-                sb.Append($"\t{info.TypeName}_RGCTXs* rgctx_data;\n");
+                writer.Write($"\t{info.TypeName}_RGCTXs* rgctx_data;\n");
             }
             else
             {
-                sb.Append("\tIl2CppRGCTXData* rgctx_data;\n");
+                writer.Write("\tIl2CppRGCTXData* rgctx_data;\n");
             }
-            sb.Append($"\tIl2CppClass_2 _2;\n");
+            writer.Write($"\tIl2CppClass_2 _2;\n");
             if (info.VTableMethod.Length > 0)
             {
-                sb.Append($"\t{info.TypeName}_VTable vtable;\n");
+                writer.Write($"\t{info.TypeName}_VTable vtable;\n");
             }
             else
             {
-                sb.Append("\tVirtualInvokeData vtable[32];\n");
+                writer.Write("\tVirtualInvokeData vtable[32];\n");
             }
-            sb.Append($"}};\n");
+            writer.Write($"}};\n");
 
-            sb.Append($"struct {info.TypeName}_o {{\n");
+            writer.Write($"struct {info.TypeName}_o {{\n");
             if (!info.IsValueType)
             {
-                sb.Append($"\t{info.TypeName}_c *klass;\n");
-                sb.Append($"\tvoid *monitor;\n");
+                writer.Write($"\t{info.TypeName}_c *klass;\n");
+                writer.Write($"\tvoid *monitor;\n");
             }
-            sb.Append($"\t{info.TypeName}_Fields fields;\n");
-            sb.Append("};\n");
+            writer.Write($"\t{info.TypeName}_Fields fields;\n");
+            writer.Write("};\n");
 
             if (info.StaticFields.Count > 0)
             {
-                sb.Append($"struct {info.TypeName}_StaticFields {{\n");
+                writer.Write($"struct {info.TypeName}_StaticFields {{\n");
                 foreach (var field in info.StaticFields)
                 {
-                    if (field.IsValueType && structInfoWithStructName.TryGetValue(field.FieldTypeName, out var fieldInfo))
-                    {
-                        pre.Append(RecursionStructInfo(fieldInfo));
-                    }
                     if (field.IsCustomType)
                     {
-                        sb.Append($"\tstruct {field.FieldTypeName} {field.FieldName};\n");
+                        writer.Write($"\tstruct {field.FieldTypeName} {field.FieldName};\n");
                     }
                     else
                     {
-                        sb.Append($"\t{field.FieldTypeName} {field.FieldName};\n");
+                        writer.Write($"\t{field.FieldTypeName} {field.FieldName};\n");
                     }
                 }
-                sb.Append("};\n");
+                writer.Write("};\n");
             }
-
-            return pre.Append(sb).ToString();
         }
 
         private bool TryResolveGenericParameterType(Il2CppType il2CppType, Il2CppGenericContext context, bool methodGeneric, out Il2CppType type)
