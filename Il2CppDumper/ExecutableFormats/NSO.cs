@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -218,7 +218,7 @@ namespace Il2CppDumper
 
         public override bool Search()
         {
-            return false;
+            return Arm64RegisterScanner.Search(this);
         }
 
         public override bool PlusSearch(int methodCount, int typeDefinitionsCount, int imageCount)

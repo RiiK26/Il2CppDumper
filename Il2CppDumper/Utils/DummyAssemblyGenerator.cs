@@ -1,4 +1,4 @@
-﻿using Mono.Cecil;
+using Mono.Cecil;
 using Mono.Cecil.Cil;
 using Mono.Collections.Generic;
 using System;
@@ -159,20 +159,23 @@ namespace Il2CppDumper
                     }
 
                     //genericParameter
-                    if (typeDef.genericContainerIndex >= 0)
+                    if (typeDef.genericContainerIndex >= 0 && metadata.genericContainers != null && typeDef.genericContainerIndex < metadata.genericContainers.Length)
                     {
                         var genericContainer = metadata.genericContainers[typeDef.genericContainerIndex];
                         for (int i = 0; i < genericContainer.type_argc; i++)
                         {
                             var genericParameterIndex = genericContainer.genericParameterStart + i;
-                            var param = metadata.genericParameters[genericParameterIndex];
-                            var genericParameter = CreateGenericParameter(param, typeDefinition);
-                            typeDefinition.GenericParameters.Add(genericParameter);
+                            if (metadata.genericParameters != null && genericParameterIndex >= 0 && genericParameterIndex < metadata.genericParameters.Length)
+                            {
+                                var param = metadata.genericParameters[genericParameterIndex];
+                                var genericParameter = CreateGenericParameter(param, typeDefinition);
+                                typeDefinition.GenericParameters.Add(genericParameter);
+                            }
                         }
                     }
 
                     //parent
-                    if (typeDef.parentIndex >= 0)
+                    if (typeDef.parentIndex >= 0 && typeDef.parentIndex < il2Cpp.types.Length)
                     {
                         var parentType = il2Cpp.types[typeDef.parentIndex];
                         var parentTypeRef = GetTypeReference(typeDefinition, parentType);
@@ -180,11 +183,22 @@ namespace Il2CppDumper
                     }
 
                     //interfaces
-                    for (int i = 0; i < typeDef.interfaces_count; i++)
+                    if (metadata.interfaceIndices != null)
                     {
-                        var interfaceType = il2Cpp.types[metadata.interfaceIndices[typeDef.interfacesStart + i]];
-                        var interfaceTypeRef = GetTypeReference(typeDefinition, interfaceType);
-                        typeDefinition.Interfaces.Add(new InterfaceImplementation(interfaceTypeRef));
+                        for (int i = 0; i < typeDef.interfaces_count; i++)
+                        {
+                            var idx = typeDef.interfacesStart + i;
+                            if (idx >= 0 && idx < metadata.interfaceIndices.Length)
+                            {
+                                var ifaceTypeIdx = metadata.interfaceIndices[idx];
+                                if (ifaceTypeIdx >= 0 && ifaceTypeIdx < il2Cpp.types.Length)
+                                {
+                                    var interfaceType = il2Cpp.types[ifaceTypeIdx];
+                                    var interfaceTypeRef = GetTypeReference(typeDefinition, interfaceType);
+                                    typeDefinition.Interfaces.Add(new InterfaceImplementation(interfaceTypeRef));
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -257,19 +271,30 @@ namespace Il2CppDumper
                         };
                         typeDefinition.Methods.Add(methodDefinition);
                         //genericParameter
-                        if (methodDef.genericContainerIndex >= 0)
+                        if (methodDef.genericContainerIndex >= 0 && metadata.genericContainers != null && methodDef.genericContainerIndex < metadata.genericContainers.Length)
                         {
                             var genericContainer = metadata.genericContainers[methodDef.genericContainerIndex];
                             for (int j = 0; j < genericContainer.type_argc; j++)
                             {
                                 var genericParameterIndex = genericContainer.genericParameterStart + j;
-                                var param = metadata.genericParameters[genericParameterIndex];
-                                var genericParameter = CreateGenericParameter(param, methodDefinition);
-                                methodDefinition.GenericParameters.Add(genericParameter);
+                                if (metadata.genericParameters != null && genericParameterIndex >= 0 && genericParameterIndex < metadata.genericParameters.Length)
+                                {
+                                    var param = metadata.genericParameters[genericParameterIndex];
+                                    var genericParameter = CreateGenericParameter(param, methodDefinition);
+                                    methodDefinition.GenericParameters.Add(genericParameter);
+                                }
                             }
                         }
-                        var methodReturnType = il2Cpp.types[methodDef.returnType];
-                        var returnType = GetTypeReferenceWithByRef(methodDefinition, methodReturnType);
+                        TypeReference returnType;
+                        if (methodDef.returnType >= 0 && methodDef.returnType < il2Cpp.types.Length)
+                        {
+                            var methodReturnType = il2Cpp.types[methodDef.returnType];
+                            returnType = GetTypeReferenceWithByRef(methodDefinition, methodReturnType);
+                        }
+                        else
+                        {
+                            returnType = typeDefinition.Module.ImportReference(typeSystem.Void);
+                        }
                         methodDefinition.ReturnType = returnType;
 
                         if (addToken)
@@ -305,13 +330,18 @@ namespace Il2CppDumper
                         //method parameter
                         for (var j = 0; j < methodDef.parameterCount; ++j)
                         {
-                            var parameterDef = metadata.parameterDefs[methodDef.parameterStart + j];
+                            var paramIndex = methodDef.parameterStart + j;
+                            if (metadata.parameterDefs == null || paramIndex < 0 || paramIndex >= metadata.parameterDefs.Length)
+                                continue;
+                            var parameterDef = metadata.parameterDefs[paramIndex];
                             var parameterName = metadata.GetStringFromIndex(parameterDef.nameIndex);
+                            if (parameterDef.typeIndex < 0 || parameterDef.typeIndex >= il2Cpp.types.Length)
+                                continue;
                             var parameterType = il2Cpp.types[parameterDef.typeIndex];
                             var parameterTypeRef = GetTypeReferenceWithByRef(methodDefinition, parameterType);
                             var parameterDefinition = new ParameterDefinition(parameterName, (ParameterAttributes)parameterType.attrs, parameterTypeRef);
                             methodDefinition.Parameters.Add(parameterDefinition);
-                            parameterDefinitionDic.Add(methodDef.parameterStart + j, parameterDefinition);
+                            parameterDefinitionDic[paramIndex] = parameterDefinition;
                             //ParameterDefault
                             if (metadata.GetParameterDefaultValueFromIndex(methodDef.parameterStart + j, out var parameterDefault) && parameterDefault.dataIndex != -1)
                             {
@@ -362,14 +392,22 @@ namespace Il2CppDumper
                         MethodDefinition SetMethod = null;
                         if (propertyDef.get >= 0)
                         {
-                            GetMethod = methodDefinitionDic[metadata.GetMethodIndexFromTypeDefinition(index, propertyDef.get)];
-                            propertyType = GetMethod.ReturnType;
+                            var getIdx = metadata.GetMethodIndexFromTypeDefinition(index, propertyDef.get);
+                            if (methodDefinitionDic.TryGetValue(getIdx, out GetMethod))
+                            {
+                                propertyType = GetMethod.ReturnType;
+                            }
                         }
                         if (propertyDef.set >= 0)
                         {
-                            SetMethod = methodDefinitionDic[metadata.GetMethodIndexFromTypeDefinition(index, propertyDef.set)];
-                            propertyType ??= SetMethod.Parameters[0].ParameterType;
+                            var setIdx = metadata.GetMethodIndexFromTypeDefinition(index, propertyDef.set);
+                            if (methodDefinitionDic.TryGetValue(setIdx, out SetMethod))
+                            {
+                                if (SetMethod.Parameters.Count > 0)
+                                    propertyType ??= SetMethod.Parameters[SetMethod.Parameters.Count - 1].ParameterType;
+                            }
                         }
+                        propertyType ??= typeDefinition.Module.ImportReference(typeSystem.Void);
                         var propertyDefinition = new PropertyDefinition(propertyName, (PropertyAttributes)propertyDef.attrs, propertyType)
                         {
                             GetMethod = GetMethod,
@@ -389,8 +427,12 @@ namespace Il2CppDumper
                     var eventEnd = typeDef.eventStart + typeDef.event_count;
                     for (var i = typeDef.eventStart; i < eventEnd; ++i)
                     {
+                        if (metadata.eventDefs == null || i < 0 || i >= metadata.eventDefs.Length)
+                            continue;
                         var eventDef = metadata.eventDefs[i];
                         var eventName = metadata.GetStringFromIndex(eventDef.nameIndex);
+                        if (eventDef.typeIndex < 0 || eventDef.typeIndex >= il2Cpp.types.Length)
+                            continue;
                         var eventType = il2Cpp.types[eventDef.typeIndex];
                         var eventTypeRef = GetTypeReference(typeDefinition, eventType);
                         var eventDefinition = new EventDefinition(eventName, (EventAttributes)eventType.attrs, eventTypeRef);
@@ -429,28 +471,35 @@ namespace Il2CppDumper
                         var fieldEnd = typeDef.fieldStart + typeDef.field_count;
                         for (var i = typeDef.fieldStart; i < fieldEnd; ++i)
                         {
-                            var fieldDef = metadata.fieldDefs[i];
-                            var fieldDefinition = fieldDefinitionDic[i];
-                            //fieldAttribute
-                            CreateCustomAttribute(imageDef, fieldDef.customAttributeIndex, fieldDef.token, typeDefinition.Module, fieldDefinition.CustomAttributes);
+                            if (metadata.fieldDefs != null && i >= 0 && i < metadata.fieldDefs.Length && fieldDefinitionDic.TryGetValue(i, out var fieldDefinition))
+                            {
+                                var fieldDef = metadata.fieldDefs[i];
+                                //fieldAttribute
+                                CreateCustomAttribute(imageDef, fieldDef.customAttributeIndex, fieldDef.token, typeDefinition.Module, fieldDefinition.CustomAttributes);
+                            }
                         }
 
                         //method
                         for (var methodIndexInType = 0; methodIndexInType < typeDef.method_count; methodIndexInType++)
                         {
                             var i = metadata.GetMethodIndexFromTypeDefinition(index, methodIndexInType);
-                            var methodDef = metadata.methodDefs[i];
-                            var methodDefinition = methodDefinitionDic[i];
-                            //methodAttribute
-                            CreateCustomAttribute(imageDef, methodDef.customAttributeIndex, methodDef.token, typeDefinition.Module, methodDefinition.CustomAttributes);
-
-                            //method parameter
-                            for (var j = 0; j < methodDef.parameterCount; ++j)
+                            if (metadata.methodDefs != null && i >= 0 && i < metadata.methodDefs.Length && methodDefinitionDic.TryGetValue(i, out var methodDefinition))
                             {
-                                var parameterDef = metadata.parameterDefs[methodDef.parameterStart + j];
-                                var parameterDefinition = parameterDefinitionDic[methodDef.parameterStart + j];
-                                //parameterAttribute
-                                CreateCustomAttribute(imageDef, parameterDef.customAttributeIndex, parameterDef.token, typeDefinition.Module, parameterDefinition.CustomAttributes);
+                                var methodDef = metadata.methodDefs[i];
+                                //methodAttribute
+                                CreateCustomAttribute(imageDef, methodDef.customAttributeIndex, methodDef.token, typeDefinition.Module, methodDefinition.CustomAttributes);
+
+                                //method parameter
+                                for (var j = 0; j < methodDef.parameterCount; ++j)
+                                {
+                                    var pIdx = methodDef.parameterStart + j;
+                                    if (metadata.parameterDefs != null && pIdx >= 0 && pIdx < metadata.parameterDefs.Length && parameterDefinitionDic.TryGetValue(pIdx, out var parameterDefinition))
+                                    {
+                                        var parameterDef = metadata.parameterDefs[pIdx];
+                                        //parameterAttribute
+                                        CreateCustomAttribute(imageDef, parameterDef.customAttributeIndex, parameterDef.token, typeDefinition.Module, parameterDefinition.CustomAttributes);
+                                    }
+                                }
                             }
                         }
 
@@ -458,20 +507,24 @@ namespace Il2CppDumper
                         var propertyEnd = typeDef.propertyStart + typeDef.property_count;
                         for (var i = typeDef.propertyStart; i < propertyEnd; ++i)
                         {
-                            var propertyDef = metadata.propertyDefs[i];
-                            var propertyDefinition = propertyDefinitionDic[i];
-                            //propertyAttribute
-                            CreateCustomAttribute(imageDef, propertyDef.customAttributeIndex, propertyDef.token, typeDefinition.Module, propertyDefinition.CustomAttributes);
+                            if (metadata.propertyDefs != null && i >= 0 && i < metadata.propertyDefs.Length && propertyDefinitionDic.TryGetValue(i, out var propertyDefinition))
+                            {
+                                var propertyDef = metadata.propertyDefs[i];
+                                //propertyAttribute
+                                CreateCustomAttribute(imageDef, propertyDef.customAttributeIndex, propertyDef.token, typeDefinition.Module, propertyDefinition.CustomAttributes);
+                            }
                         }
 
                         //event
                         var eventEnd = typeDef.eventStart + typeDef.event_count;
                         for (var i = typeDef.eventStart; i < eventEnd; ++i)
                         {
-                            var eventDef = metadata.eventDefs[i];
-                            var eventDefinition = eventDefinitionDic[i];
-                            //eventAttribute
-                            CreateCustomAttribute(imageDef, eventDef.customAttributeIndex, eventDef.token, typeDefinition.Module, eventDefinition.CustomAttributes);
+                            if (metadata.eventDefs != null && i >= 0 && i < metadata.eventDefs.Length && eventDefinitionDic.TryGetValue(i, out var eventDefinition))
+                            {
+                                var eventDef = metadata.eventDefs[i];
+                                //eventAttribute
+                                CreateCustomAttribute(imageDef, eventDef.customAttributeIndex, eventDef.token, typeDefinition.Module, eventDefinition.CustomAttributes);
+                            }
                         }
                     }
                 }
@@ -643,17 +696,21 @@ namespace Il2CppDumper
                     }
                 case Il2CppTypeEnum.IL2CPP_TYPE_VAR:
                     {
-                        if (memberReference is MethodDefinition methodDefinition)
+                        var param = executor.GetGenericParameteFromIl2CppType(il2CppType);
+                        if (param == null || !genericParameterDic.TryGetValue(param, out var gp))
                         {
-                            return CreateGenericParameter(executor.GetGenericParameteFromIl2CppType(il2CppType), methodDefinition.DeclaringType);
+                            return moduleDefinition.ImportReference(typeSystem.Object);
                         }
-                        var typeDefinition = (TypeDefinition)memberReference;
-                        return CreateGenericParameter(executor.GetGenericParameteFromIl2CppType(il2CppType), typeDefinition);
+                        return gp;
                     }
                 case Il2CppTypeEnum.IL2CPP_TYPE_MVAR:
                     {
-                        var methodDefinition = (MethodDefinition)memberReference;
-                        return CreateGenericParameter(executor.GetGenericParameteFromIl2CppType(il2CppType), methodDefinition);
+                        var param = executor.GetGenericParameteFromIl2CppType(il2CppType);
+                        if (param == null || !genericParameterDic.TryGetValue(param, out var gp))
+                        {
+                            return moduleDefinition.ImportReference(typeSystem.Object);
+                        }
+                        return gp;
                     }
                 case Il2CppTypeEnum.IL2CPP_TYPE_PTR:
                     {
@@ -761,18 +818,35 @@ namespace Il2CppDumper
 
         private GenericParameter CreateGenericParameter(Il2CppGenericParameter param, IGenericParameterProvider iGenericParameterProvider)
         {
+            if (param == null)
+            {
+                return new GenericParameter("T", iGenericParameterProvider);
+            }
             if (!genericParameterDic.TryGetValue(param, out var genericParameter))
             {
                 var genericName = metadata.GetStringFromIndex(param.nameIndex);
+                if (string.IsNullOrEmpty(genericName))
+                    genericName = "T";
                 genericParameter = new GenericParameter(genericName, iGenericParameterProvider)
                 {
                     Attributes = (GenericParameterAttributes)param.flags
                 };
                 genericParameterDic.Add(param, genericParameter);
-                for (int i = 0; i < param.constraintsCount; ++i)
+                if (metadata.constraintIndices != null)
                 {
-                    var il2CppType = il2Cpp.types[metadata.constraintIndices[param.constraintsStart + i]];
-                    genericParameter.Constraints.Add(new GenericParameterConstraint(GetTypeReference((MemberReference)iGenericParameterProvider, il2CppType)));
+                    for (int i = 0; i < param.constraintsCount; ++i)
+                    {
+                        var cIdx = param.constraintsStart + i;
+                        if (cIdx >= 0 && cIdx < metadata.constraintIndices.Length)
+                        {
+                            var typeIdx = metadata.constraintIndices[cIdx];
+                            if (typeIdx >= 0 && typeIdx < il2Cpp.types.Length)
+                            {
+                                var il2CppType = il2Cpp.types[typeIdx];
+                                genericParameter.Constraints.Add(new GenericParameterConstraint(GetTypeReference((MemberReference)iGenericParameterProvider, il2CppType)));
+                            }
+                        }
+                    }
                 }
             }
             return genericParameter;

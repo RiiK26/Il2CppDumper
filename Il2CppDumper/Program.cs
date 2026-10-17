@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
@@ -33,23 +34,33 @@ namespace Il2CppDumper
             }
             if (args.Length > 1)
             {
+                var fileArgs = new List<string>();
                 foreach (var arg in args)
                 {
                     if (File.Exists(arg))
                     {
-                        var file = File.ReadAllBytes(arg);
-                        if (BitConverter.ToUInt32(file, 0) == 0xFAB11BAF)
-                        {
-                            metadataPath = arg;
-                        }
-                        else
-                        {
-                            il2cppPath = arg;
-                        }
+                        fileArgs.Add(arg);
                     }
                     else if (Directory.Exists(arg))
                     {
                         outputDir = Path.GetFullPath(arg) + Path.DirectorySeparatorChar;
+                    }
+                }
+
+                if (fileArgs.Count >= 2)
+                {
+                    ClassifyFiles(fileArgs[0], fileArgs[1], out il2cppPath, out metadataPath);
+                }
+                else if (fileArgs.Count == 1)
+                {
+                    var file = File.ReadAllBytes(fileArgs[0]);
+                    if (IsExecutableFile(file))
+                    {
+                        il2cppPath = fileArgs[0];
+                    }
+                    else
+                    {
+                        metadataPath = fileArgs[0];
                     }
                 }
             }
@@ -116,11 +127,67 @@ namespace Il2CppDumper
             Console.WriteLine($"usage: {AppDomain.CurrentDomain.FriendlyName} <executable-file> <global-metadata> <output-directory>");
         }
 
+        private static bool IsExecutableFile(byte[] bytes)
+        {
+            if (bytes == null || bytes.Length < 4) return false;
+            var magic = BitConverter.ToUInt32(bytes, 0);
+            return magic == 0x464c457f // ELF
+                || (bytes[0] == 0x4D && bytes[1] == 0x5A) // PE (MZ)
+                || magic == 0xFEEDFACE || magic == 0xFEEDFACF || magic == 0xCAFEBABE || magic == 0xBEBAFECA // Mach-O
+                || magic == 0x304F534E // NSO
+                || magic == 0x6D736100; // WASM
+        }
+
+        private static void ClassifyFiles(string fileA, string fileB, out string il2cppPath, out string metadataPath)
+        {
+            var bytesA = File.ReadAllBytes(fileA);
+            var bytesB = File.ReadAllBytes(fileB);
+
+            bool isExecA = IsExecutableFile(bytesA);
+            bool isExecB = IsExecutableFile(bytesB);
+
+            if (isExecA && !isExecB)
+            {
+                il2cppPath = fileA;
+                metadataPath = fileB;
+            }
+            else if (!isExecA && isExecB)
+            {
+                il2cppPath = fileB;
+                metadataPath = fileA;
+            }
+            else
+            {
+                bool isMetaA = MetadataPreProcessor.IsMetadataCandidate(bytesA, fileA);
+                bool isMetaB = MetadataPreProcessor.IsMetadataCandidate(bytesB, fileB);
+
+                if (isMetaA && !isMetaB)
+                {
+                    metadataPath = fileA;
+                    il2cppPath = fileB;
+                }
+                else
+                {
+                    il2cppPath = fileA;
+                    metadataPath = fileB;
+                }
+            }
+        }
+
         private static bool Init(string il2cppPath, string metadataPath, out Metadata metadata, out Il2Cpp il2Cpp)
         {
             Console.WriteLine("Initializing metadata...");
             var metadataBytes = File.ReadAllBytes(metadataPath);
-            metadata = new Metadata(new MemoryStream(metadataBytes));
+            if (config.AutoDeobfuscateMetadata || config.MetadataShiftOffset >= 0 || !string.IsNullOrWhiteSpace(config.MetadataXorKey))
+            {
+                metadataBytes = MetadataPreProcessor.Process(metadataBytes, config, out var info);
+                if (!string.IsNullOrEmpty(info))
+                {
+                    Console.WriteLine($"[MetadataPreProcessor] {info}");
+                }
+            }
+            double? forceVersion = config.ForceIl2CppVersion ? config.ForceVersion : null;
+            metadata = new Metadata(new MemoryStream(metadataBytes), forceVersion, config.DisableMetadataSanityCheck);
             Console.WriteLine($"Metadata Version: {metadata.Version}");
 
             Console.WriteLine("Initializing il2cpp file...");
@@ -225,6 +292,20 @@ namespace Il2CppDumper
                 if (!flag)
                 {
                     flag = il2Cpp.SymbolSearch();
+                }
+                if (!flag && il2Cpp.PointerSize == 8)
+                {
+                    flag = Arm64RegisterScanner.Search(il2Cpp);
+                }
+                if (!flag && config.EnablePointerDensityScanner)
+                {
+                    Console.WriteLine("Scanning pointer density & clusters in data sections...");
+                    flag = PointerDensityScanner.Search(il2Cpp, metadata, config.PointerDensityThreshold);
+                }
+                if (!flag && config.EnableStringCrossReferencer)
+                {
+                    Console.WriteLine("Cross-referencing runtime strings and assertions...");
+                    flag = StringCrossReferencer.Search(il2Cpp, metadata, config.PointerDensityThreshold);
                 }
                 if (!flag)
                 {

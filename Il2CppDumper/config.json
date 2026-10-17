@@ -11,8 +11,17 @@
   "DummyDllAddToken": true,
   "RequireAnyKey": true,
   "ForceIl2CppVersion": false,
-  "ForceVersion": 24.3,
+  "ForceVersion": 29.0,
   "ForceDump": false,
   "NoRedirectedPointer": false,
-  "DeobfuscateNames": true
+  "DeobfuscateNames": true,
+  "AutoDeobfuscateMetadata": true,
+  "DisableMetadataSanityCheck": false,
+  "MetadataXorKey": null,
+  "MetadataShiftOffset": -1,
+  "AutoRemapMemoryDump": true,
+  "MetadataMemoryBase": 0,
+  "EnablePointerDensityScanner": true,
+  "PointerDensityThreshold": 0.80,
+  "EnableStringCrossReferencer": true
 }

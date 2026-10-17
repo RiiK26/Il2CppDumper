@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -86,6 +86,10 @@ namespace Il2CppDumper
 
         public override bool Search()
         {
+            if (elfHeader.e_machine == 183) // EM_AARCH64
+            {
+                return Arm64RegisterScanner.Search(this);
+            }
             return false;
         }
 

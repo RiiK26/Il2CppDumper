@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 
@@ -166,9 +166,9 @@ namespace Il2CppDumper
 
         public ulong FindCodeRegistration()
         {
+            ulong codeRegistration = 0;
             if (il2Cpp.Version >= 24.2)
             {
-                ulong codeRegistration;
                 if (il2Cpp is ElfBase)
                 {
                     codeRegistration = FindCodeRegistrationExec();
@@ -190,9 +190,17 @@ namespace Il2CppDumper
                         pointerInExec = true;
                     }
                 }
-                return codeRegistration;
             }
-            return FindCodeRegistrationOld();
+            else
+            {
+                codeRegistration = FindCodeRegistrationOld();
+            }
+
+            if (codeRegistration == 0)
+            {
+                codeRegistration = PointerDensityScanner.FindCodeRegistration(il2Cpp, this, methodCount, imageCount);
+            }
+            return codeRegistration;
         }
 
         public ulong FindMetadataRegistration()
@@ -201,11 +209,21 @@ namespace Il2CppDumper
             {
                 return 0;
             }
+            ulong metaRegistration = 0;
             if (il2Cpp.Version >= 27)
             {
-                return FindMetadataRegistrationV21();
+                metaRegistration = FindMetadataRegistrationV21();
             }
-            return FindMetadataRegistrationOld();
+            else
+            {
+                metaRegistration = FindMetadataRegistrationOld();
+            }
+
+            if (metaRegistration == 0)
+            {
+                metaRegistration = PointerDensityScanner.FindMetadataRegistration(il2Cpp, this, typeDefinitionsCount);
+            }
+            return metaRegistration;
         }
 
         private ulong FindCodeRegistrationOld()
@@ -334,17 +352,23 @@ namespace Il2CppDumper
 
         private bool CheckPointerRangeExecVa(ulong[] pointers)
         {
-            return pointers.All(x => exec.Any(y => x >= y.address && x <= y.addressEnd));
+            if (pointers == null || pointers.Length == 0) return false;
+            int valid = pointers.Count(x => exec.Any(y => x >= y.address && x <= y.addressEnd));
+            return (double)valid / pointers.Length >= 0.85;
         }
 
         private bool CheckPointerRangeDataVa(ulong[] pointers)
         {
-            return pointers.All(x => data.Any(y => x >= y.address && x <= y.addressEnd));
+            if (pointers == null || pointers.Length == 0) return false;
+            int valid = pointers.Count(x => data.Any(y => x >= y.address && x <= y.addressEnd));
+            return (double)valid / pointers.Length >= 0.85;
         }
 
         private bool CheckPointerRangeBssVa(ulong[] pointers)
         {
-            return pointers.All(x => bss.Any(y => x >= y.address && x <= y.addressEnd));
+            if (pointers == null || pointers.Length == 0) return false;
+            int valid = pointers.Count(x => bss.Any(y => x >= y.address && x <= y.addressEnd));
+            return (double)valid / pointers.Length >= 0.85;
         }
 
         private static readonly byte[] featureBytes = { 0x6D, 0x73, 0x63, 0x6F, 0x72, 0x6C, 0x69, 0x62, 0x2E, 0x64, 0x6C, 0x6C, 0x00 }; //mscorlib.dll

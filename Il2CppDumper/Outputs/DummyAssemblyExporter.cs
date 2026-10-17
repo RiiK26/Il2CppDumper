@@ -1,4 +1,5 @@
-﻿using System.IO;
+using System;
+using System.IO;
 
 using Mono.Cecil;
 using System.Collections.Generic;
@@ -17,10 +18,17 @@ namespace Il2CppDumper
             var dummy = new DummyAssemblyGenerator(il2CppExecutor, addToken);
             foreach (var assembly in dummy.Assemblies)
             {
-                SanitizeConstants(assembly);
-                SanitizeMemberReferences(assembly);
-                SanitizeCustomAttributes(assembly);
-                File.WriteAllBytes(assembly.MainModule.Name, WriteAssembly(assembly));
+                try
+                {
+                    SanitizeConstants(assembly);
+                    SanitizeMemberReferences(assembly);
+                    SanitizeCustomAttributes(assembly);
+                    File.WriteAllBytes(assembly.MainModule.Name, WriteAssembly(assembly));
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[DummyAssemblyExporter] Warning: Failed to export {assembly.MainModule.Name}: {ex.Message}");
+                }
             }
         }
 

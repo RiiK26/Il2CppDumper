@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -53,7 +53,7 @@ namespace Il2CppDumper
             this.metadata = metadata;
         }
 
-        protected bool AutoPlusInit(ulong codeRegistration, ulong metadataRegistration)
+        public bool AutoPlusInit(ulong codeRegistration, ulong metadataRegistration)
         {
             if (codeRegistration != 0)
             {
@@ -500,7 +500,7 @@ namespace Il2CppDumper
             return normalizedCodeGenModuleMethodPointers != null && normalizedCodeGenModuleMethodPointers.TryGetValue(NormalizeModuleName(imageName), out ptrs);
         }
 
-        private bool TryMapVATR(ulong addr, out ulong offset)
+        public bool TryMapVATR(ulong addr, out ulong offset)
         {
             try
             {

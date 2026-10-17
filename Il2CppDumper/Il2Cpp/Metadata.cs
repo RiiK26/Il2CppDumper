@@ -70,23 +70,30 @@ namespace Il2CppDumper
         private int adjustorThunkIndexSize = 4;
         private int genericContainerSizeV106;
 
-        public Metadata(Stream stream) : base(stream)
+        public Metadata(Stream stream, double? forceVersion = null, bool disableSanityCheck = false) : base(stream)
         {
             var sanity = ReadUInt32();
-            if (sanity != 0xFAB11BAF)
+            if (sanity != 0xFAB11BAF && !disableSanityCheck)
             {
                 throw new InvalidDataException("ERROR: Metadata file supplied is not valid metadata file.");
             }
             var version = ReadInt32();
-            if (version < 0 || version > 1000)
+            if (forceVersion.HasValue)
             {
-                throw new InvalidDataException("ERROR: Metadata file supplied is not valid metadata file.");
+                version = (int)forceVersion.Value;
             }
-            if (version < 16 || version > 200)
+            else
             {
-                throw new NotSupportedException($"ERROR: Metadata file supplied is not a supported version[{version}].");
+                if (version < 0 || version > 1000)
+                {
+                    throw new InvalidDataException("ERROR: Metadata file supplied is not valid metadata file.");
+                }
+                if (version < 16 || version > 200)
+                {
+                    throw new NotSupportedException($"ERROR: Metadata file supplied is not a supported version[{version}].");
+                }
             }
-            Version = version;
+            Version = forceVersion ?? version;
             if (Version >= 38)
             {
                 header = ReadMetadataHeaderV38();

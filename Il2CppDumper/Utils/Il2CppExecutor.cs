@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -85,7 +85,9 @@ namespace Il2CppDumper
                 case Il2CppTypeEnum.IL2CPP_TYPE_MVAR:
                     {
                         var param = GetGenericParameteFromIl2CppType(il2CppType);
-                        return metadata.GetStringFromIndex(param.nameIndex);
+                        if (param != null)
+                            return metadata.GetStringFromIndex(param.nameIndex);
+                        return il2CppType.type == Il2CppTypeEnum.IL2CPP_TYPE_VAR ? "T" : "M";
                     }
                 case Il2CppTypeEnum.IL2CPP_TYPE_CLASS:
                 case Il2CppTypeEnum.IL2CPP_TYPE_VALUETYPE:
@@ -105,8 +107,16 @@ namespace Il2CppDumper
                         }
                         if (typeDef.declaringTypeIndex != -1)
                         {
-                            str += GetTypeName(il2Cpp.types[typeDef.declaringTypeIndex], addNamespace, true);
-                            str += '.';
+                            if (typeDef.declaringTypeIndex >= 0 && typeDef.declaringTypeIndex < il2Cpp.types.Length)
+                            {
+                                str += GetTypeName(il2Cpp.types[typeDef.declaringTypeIndex], addNamespace, true);
+                                str += '.';
+                            }
+                            else if (typeDef.declaringTypeIndex >= 0 && typeDef.declaringTypeIndex < metadata.typeDefs.Length)
+                            {
+                                str += GetTypeDefName(metadata.typeDefs[typeDef.declaringTypeIndex], addNamespace, true);
+                                str += '.';
+                            }
                         }
                         else if (addNamespace)
                         {
@@ -136,7 +146,7 @@ namespace Il2CppDumper
                             var genericInst = il2Cpp.MapVATR<Il2CppGenericInst>(genericClass.context.class_inst);
                             str += GetGenericInstParams(genericInst);
                         }
-                        else if (typeDef.genericContainerIndex >= 0)
+                        else if (typeDef.genericContainerIndex >= 0 && metadata.genericContainers != null && typeDef.genericContainerIndex < metadata.genericContainers.Length)
                         {
                             var genericContainer = metadata.genericContainers[typeDef.genericContainerIndex];
                             str += GetGenericContainerParams(genericContainer);
@@ -154,7 +164,14 @@ namespace Il2CppDumper
             var prefix = string.Empty;
             if (typeDef.declaringTypeIndex != -1)
             {
-                prefix = GetTypeName(il2Cpp.types[typeDef.declaringTypeIndex], addNamespace, true) + ".";
+                if (typeDef.declaringTypeIndex >= 0 && typeDef.declaringTypeIndex < il2Cpp.types.Length)
+                {
+                    prefix = GetTypeName(il2Cpp.types[typeDef.declaringTypeIndex], addNamespace, true) + ".";
+                }
+                else if (typeDef.declaringTypeIndex >= 0 && typeDef.declaringTypeIndex < metadata.typeDefs.Length)
+                {
+                    prefix = GetTypeDefName(metadata.typeDefs[typeDef.declaringTypeIndex], addNamespace, true) + ".";
+                }
             }
             else if (addNamespace)
             {
@@ -172,7 +189,7 @@ namespace Il2CppDumper
                 {
                     typeName = typeName[..index];
                 }
-                if (genericParameter)
+                if (genericParameter && metadata.genericContainers != null && typeDef.genericContainerIndex < metadata.genericContainers.Length)
                 {
                     var genericContainer = metadata.genericContainers[typeDef.genericContainerIndex];
                     typeName += GetGenericContainerParams(genericContainer);
@@ -199,24 +216,33 @@ namespace Il2CppDumper
             for (int i = 0; i < genericContainer.type_argc; i++)
             {
                 var genericParameterIndex = genericContainer.genericParameterStart + i;
-                var genericParameter = metadata.genericParameters[genericParameterIndex];
-                genericParameterNames.Add(metadata.GetStringFromIndex(genericParameter.nameIndex));
+                if (metadata.genericParameters != null && genericParameterIndex >= 0 && genericParameterIndex < metadata.genericParameters.Length)
+                {
+                    var genericParameter = metadata.genericParameters[genericParameterIndex];
+                    genericParameterNames.Add(metadata.GetStringFromIndex(genericParameter.nameIndex));
+                }
             }
             return $"<{string.Join(", ", genericParameterNames)}>";
         }
 
         public (string, string) GetMethodSpecName(Il2CppMethodSpec methodSpec, bool addNamespace = false)
         {
+            if (metadata.methodDefs == null || methodSpec.methodDefinitionIndex < 0 || methodSpec.methodDefinitionIndex >= metadata.methodDefs.Length)
+                return ("object", "Method");
             var methodDef = metadata.methodDefs[methodSpec.methodDefinitionIndex];
-            var typeDef = metadata.typeDefs[methodDef.declaringType];
-            var typeName = GetTypeDefName(typeDef, addNamespace, false);
-            if (methodSpec.classIndexIndex != -1)
+            var typeName = "object";
+            if (metadata.typeDefs != null && methodDef.declaringType >= 0 && methodDef.declaringType < metadata.typeDefs.Length)
+            {
+                var typeDef = metadata.typeDefs[methodDef.declaringType];
+                typeName = GetTypeDefName(typeDef, addNamespace, false);
+            }
+            if (methodSpec.classIndexIndex != -1 && il2Cpp.genericInsts != null && methodSpec.classIndexIndex >= 0 && methodSpec.classIndexIndex < il2Cpp.genericInsts.Length)
             {
                 var classInst = il2Cpp.genericInsts[methodSpec.classIndexIndex];
                 typeName += GetGenericInstParams(classInst);
             }
             var methodName = metadata.GetStringFromIndex(methodDef.nameIndex);
-            if (methodSpec.methodIndexIndex != -1)
+            if (methodSpec.methodIndexIndex != -1 && il2Cpp.genericInsts != null && methodSpec.methodIndexIndex >= 0 && methodSpec.methodIndexIndex < il2Cpp.genericInsts.Length)
             {
                 var methodInst = il2Cpp.genericInsts[methodSpec.methodIndexIndex];
                 methodName += GetGenericInstParams(methodInst);
@@ -318,18 +344,28 @@ namespace Il2CppDumper
 
         public Il2CppGenericParameter GetGenericParameteFromIl2CppType(Il2CppType il2CppType)
         {
+            if (metadata.genericParameters == null || metadata.genericParameters.Length == 0)
+                return null;
+
             if (il2Cpp.Version >= 27 && il2Cpp.IsDumped)
             {
                 var genericParametersOffset = metadata.Version >= 38
                     ? (ulong)metadata.header.genericParameters.offset
                     : metadata.header.genericParametersOffset;
                 var offset = il2CppType.data.genericParameterHandle - metadata.ImageBase - genericParametersOffset;
-                var index = offset / (ulong)metadata.SizeOf(typeof(Il2CppGenericParameter));
-                return metadata.genericParameters[index];
+                var itemSize = (ulong)metadata.SizeOf(typeof(Il2CppGenericParameter));
+                if (itemSize == 0) return null;
+                var index = offset / itemSize;
+                if (index < (ulong)metadata.genericParameters.Length)
+                    return metadata.genericParameters[index];
+                return null;
             }
             else
             {
-                return metadata.genericParameters[il2CppType.data.genericParameterIndex];
+                var index = il2CppType.data.genericParameterIndex;
+                if (index >= 0 && index < metadata.genericParameters.Length)
+                    return metadata.genericParameters[index];
+                return null;
             }
         }
 

@@ -18,5 +18,14 @@ namespace Il2CppDumper
         public bool ForceDump { get; set; } = false;
         public bool NoRedirectedPointer { get; set; } = false;
         public bool DeobfuscateNames { get; set; } = true;
+        public bool AutoDeobfuscateMetadata { get; set; } = true;
+        public bool DisableMetadataSanityCheck { get; set; } = false;
+        public string MetadataXorKey { get; set; } = null;
+        public long MetadataShiftOffset { get; set; } = -1;
+        public bool AutoRemapMemoryDump { get; set; } = true;
+        public ulong MetadataMemoryBase { get; set; } = 0;
+        public bool EnablePointerDensityScanner { get; set; } = true;
+        public double PointerDensityThreshold { get; set; } = 0.80;
+        public bool EnableStringCrossReferencer { get; set; } = true;
     }
 }
