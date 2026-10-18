@@ -27,13 +27,23 @@ namespace Il2CppDumper
         }
 
         /// <summary>
-        /// Normalizes an obfuscated type name to a clean identifier.
+        /// Normalizes an obfuscated type name to a clean identifier (Class_XXXX / Struct_XXXX / Enum_XXXX / Interface_XXXX).
         /// </summary>
-        public static string NormalizeTypeName(string rawName, int typeDefIndex)
+        public static string NormalizeTypeName(string rawName, int typeDefIndex, Il2CppTypeDefinition typeDef = null)
         {
             if (!IsObfuscated(rawName)) return rawName;
-            return $"Type_{typeDefIndex}";
+            var idxStr = typeDefIndex >= 0 ? typeDefIndex.ToString() : "unknown";
+            if (typeDef != null)
+            {
+                if (typeDef.IsEnum) return $"Enum_{idxStr}";
+                if ((typeDef.flags & 0x00000020) != 0) return $"Interface_{idxStr}";
+                if (typeDef.IsValueType) return $"Struct_{idxStr}";
+                return $"Class_{idxStr}";
+            }
+            return $"Type_{idxStr}";
         }
+
+        public static string NormalizeTypeName(string rawName, int typeDefIndex) => NormalizeTypeName(rawName, typeDefIndex, null);
 
         /// <summary>
         /// Normalizes an obfuscated method name using its RVA address or index.

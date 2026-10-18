@@ -13,6 +13,8 @@ namespace Il2CppDumper
         private readonly Metadata metadata;
         private readonly Il2Cpp il2Cpp;
         private readonly Dictionary<Il2CppMethodDefinition, string> methodModifiers;
+        private readonly SemanticDeobfuscator semanticDeobfuscator;
+        private readonly MethodXrefScanner methodXrefScanner;
 
         public Il2CppDecompiler(Il2CppExecutor il2CppExecutor)
         {
@@ -20,6 +22,16 @@ namespace Il2CppDumper
             metadata = il2CppExecutor.metadata;
             il2Cpp = il2CppExecutor.il2Cpp;
             methodModifiers = new();
+            try
+            {
+                semanticDeobfuscator = new SemanticDeobfuscator(metadata, il2Cpp);
+            }
+            catch { }
+            try
+            {
+                methodXrefScanner = new MethodXrefScanner(il2Cpp, metadata);
+            }
+            catch { }
         }
 
         public void Decompile(Config config, string outputDir)
@@ -68,6 +80,10 @@ namespace Il2CppDumper
                             }
                         }
                         writer.Write($"\n// Namespace: {metadata.GetStringFromIndex(typeDef.namespaceIndex)}\n");
+                        if (semanticDeobfuscator != null && semanticDeobfuscator.TryGetSemanticTypeName(typeDefIndex, out var sName))
+                        {
+                            writer.Write($"// [Semantic Context: {sName}]\n");
+                        }
                         if (config.DumpAttribute)
                         {
                             writer.Write(GetCustomAttribute(imageDef, typeDef.customAttributeIndex, typeDef.token));
@@ -303,12 +319,16 @@ namespace Il2CppDumper
                                     writer.Write(GetCustomAttribute(imageDef, methodDef.customAttributeIndex, methodDef.token, "\t"));
                                 }
                                 var methodPointer = il2Cpp.GetMethodPointer(imageName, methodDef);
+                                ulong methodRva = 0;
+                                if (!isAbstract && methodPointer > 0)
+                                {
+                                    methodRva = il2Cpp.GetRVA(methodPointer);
+                                }
                                 if (config.DumpMethodOffset)
                                 {
                                     if (!isAbstract && methodPointer > 0)
                                     {
-                                        var fixedMethodPointer = il2Cpp.GetRVA(methodPointer);
-                                        writer.Write("\t// RVA: 0x{0:X} Offset: 0x{1:X} VA: 0x{2:X}", fixedMethodPointer, il2Cpp.MapVATR(methodPointer), methodPointer);
+                                        writer.Write("\t// RVA: 0x{0:X} Offset: 0x{1:X} VA: 0x{2:X}", methodRva, il2Cpp.MapVATR(methodPointer), methodPointer);
                                     }
                                     else
                                     {
@@ -320,6 +340,26 @@ namespace Il2CppDumper
                                     }
                                     writer.Write("\n");
                                 }
+                                if (semanticDeobfuscator != null && methodRva > 0)
+                                {
+                                    var stubComment = semanticDeobfuscator.GetSharedStubComment(methodRva);
+                                    if (stubComment != null)
+                                    {
+                                        writer.Write(stubComment);
+                                    }
+                                }
+                                if (config.EnableMethodXrefs && !isAbstract && methodPointer > 0 && methodXrefScanner != null)
+                                {
+                                    var (calls, strings) = methodXrefScanner.ScanMethod(methodPointer);
+                                    if (calls != null && calls.Count > 0)
+                                    {
+                                        writer.Write($"\t// Calls: {string.Join(", ", calls)}\n");
+                                    }
+                                    if (strings != null && strings.Count > 0)
+                                    {
+                                        writer.Write($"\t// Strings: {string.Join(", ", strings.Select(s => $"\"{s.ToEscapedString()}\""))}\n");
+                                    }
+                                }
                                 writer.Write("\t");
                                 writer.Write(GetModifiers(methodDef));
                                 Il2CppType methodReturnType = null;
@@ -328,11 +368,6 @@ namespace Il2CppDumper
                                     methodReturnType = il2Cpp.types[methodDef.returnType];
                                 }
                                 var rawMethodName = metadata.GetStringFromIndex(methodDef.nameIndex);
-                                ulong methodRva = 0;
-                                if (!isAbstract && methodPointer > 0)
-                                {
-                                    methodRva = il2Cpp.GetRVA(methodPointer);
-                                }
                                 var methodName = config.DeobfuscateNames ? NameDeobfuscator.NormalizeMethodName(rawMethodName, methodRva, i) : rawMethodName;
                                 if (methodDef.genericContainerIndex >= 0 && metadata.genericContainers != null && methodDef.genericContainerIndex < metadata.genericContainers.Length)
                                 {
@@ -358,6 +393,10 @@ namespace Il2CppDumper
                                     {
                                         var parameterType = il2Cpp.types[parameterDef.typeIndex];
                                         var parameterTypeName = executor.GetTypeName(parameterType, false, false);
+                                        if (string.IsNullOrWhiteSpace(parameterTypeName))
+                                        {
+                                            parameterTypeName = "object";
+                                        }
                                         if (parameterType.byref == 1)
                                         {
                                             if ((parameterType.attrs & PARAM_ATTRIBUTE_OUT) != 0 && (parameterType.attrs & PARAM_ATTRIBUTE_IN) == 0)

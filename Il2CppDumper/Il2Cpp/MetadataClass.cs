@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 
 namespace Il2CppDumper
 {
@@ -342,6 +342,7 @@ namespace Il2CppDumper
         public bool IsValueType => (bitfield & 0x1) == 1;
         public bool IsEnum => ((bitfield >> 1) & 0x1) == 1;
         public bool HasGeneratedMethods => ((bitfield >> 19) & 0x1) == 1;
+        public int typeDefIndex { get; set; } = -1;
     }
 
     public class Il2CppMethodDefinition

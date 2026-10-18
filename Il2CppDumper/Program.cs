@@ -215,6 +215,12 @@ namespace Il2CppDumper
                 {
                     Console.WriteLine($"[MetadataPreProcessor] {info}");
                 }
+                var dumpPath = Environment.GetEnvironmentVariable("IL2CPP_DUMP_PREPROCESSED");
+                if (!string.IsNullOrWhiteSpace(dumpPath))
+                {
+                    File.WriteAllBytes(dumpPath, metadataBytes);
+                    Console.WriteLine($"[MetadataPreProcessor] Preprocessed metadata written to {dumpPath}");
+                }
             }
             double? forceVersion = config.ForceIl2CppVersion ? config.ForceVersion : null;
             metadata = new Metadata(new MemoryStream(metadataBytes), forceVersion, config.DisableMetadataSanityCheck);
@@ -275,6 +281,7 @@ namespace Il2CppDumper
                     il2Cpp = new Macho(il2CppMemory);
                     break;
             }
+            il2Cpp.RawBytes = il2cppBytes;
             var version = config.ForceIl2CppVersion ? config.ForceVersion : metadata.Version;
             il2Cpp.SetProperties(version, metadata.metadataUsagesCount, metadata);
             Console.WriteLine($"Il2Cpp Version: {il2Cpp.Version}");

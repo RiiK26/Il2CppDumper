@@ -86,7 +86,11 @@ namespace Il2CppDumper
                     {
                         var param = GetGenericParameteFromIl2CppType(il2CppType);
                         if (param != null)
-                            return metadata.GetStringFromIndex(param.nameIndex);
+                        {
+                            var name = metadata.GetStringFromIndex(param.nameIndex);
+                            if (!string.IsNullOrEmpty(name))
+                                return name;
+                        }
                         return il2CppType.type == Il2CppTypeEnum.IL2CPP_TYPE_VAR ? "T" : "M";
                     }
                 case Il2CppTypeEnum.IL2CPP_TYPE_CLASS:
@@ -121,22 +125,20 @@ namespace Il2CppDumper
                         else if (addNamespace)
                         {
                             var @namespace = metadata.GetStringFromIndex(typeDef.namespaceIndex);
-                            if (@namespace != "")
+                            if (!string.IsNullOrEmpty(@namespace))
                             {
+                                if (NameDeobfuscator.IsObfuscated(@namespace))
+                                {
+                                    @namespace = "ObfuscatedNamespace";
+                                }
                                 str += @namespace + ".";
                             }
                         }
 
-                        var typeName = metadata.GetStringFromIndex(typeDef.nameIndex);
-                        var index = typeName.IndexOf("`");
-                        if (index != -1)
-                        {
-                            str += typeName[..index];
-                        }
-                        else
-                        {
-                            str += typeName;
-                        }
+                        var rawTypeName = metadata.GetStringFromIndex(typeDef.nameIndex);
+                        var index = rawTypeName.IndexOf("`");
+                        var baseName = index != -1 ? rawTypeName[..index] : rawTypeName;
+                        str += NameDeobfuscator.NormalizeTypeName(baseName, typeDef.typeDefIndex, typeDef);
 
                         if (is_nested)
                             return str;
@@ -176,19 +178,21 @@ namespace Il2CppDumper
             else if (addNamespace)
             {
                 var @namespace = metadata.GetStringFromIndex(typeDef.namespaceIndex);
-                if (@namespace != "")
+                if (!string.IsNullOrEmpty(@namespace))
                 {
+                    if (NameDeobfuscator.IsObfuscated(@namespace))
+                    {
+                        @namespace = "ObfuscatedNamespace";
+                    }
                     prefix = @namespace + ".";
                 }
             }
-            var typeName = metadata.GetStringFromIndex(typeDef.nameIndex);
+            var rawTypeName = metadata.GetStringFromIndex(typeDef.nameIndex);
+            var index = rawTypeName.IndexOf("`");
+            var baseName = index != -1 ? rawTypeName[..index] : rawTypeName;
+            var typeName = NameDeobfuscator.NormalizeTypeName(baseName, typeDef.typeDefIndex, typeDef);
             if (typeDef.genericContainerIndex >= 0)
             {
-                var index = typeName.IndexOf("`");
-                if (index != -1)
-                {
-                    typeName = typeName[..index];
-                }
                 if (genericParameter && metadata.genericContainers != null && typeDef.genericContainerIndex < metadata.genericContainers.Length)
                 {
                     var genericContainer = metadata.genericContainers[typeDef.genericContainerIndex];
@@ -376,17 +380,29 @@ namespace Il2CppDumper
 
         public bool TryGetDefaultValue(int typeIndex, int dataIndex, out object value)
         {
-            var pointer = metadata.GetDefaultValueFromIndex(dataIndex);
-            var defaultValueType = il2Cpp.types[typeIndex];
-            metadata.Position = pointer;
-            if (GetConstantValueFromBlob(defaultValueType.type, metadata.Reader, out var blobValue))
+            value = null;
+            try
             {
-                value = blobValue.Value;
-                return true;
+                var pointer = metadata.GetDefaultValueFromIndex(dataIndex);
+                if (typeIndex < 0 || typeIndex >= il2Cpp.types.Length || pointer == 0 || pointer >= (uint)metadata.Length)
+                {
+                    return false;
+                }
+                var defaultValueType = il2Cpp.types[typeIndex];
+                metadata.Position = pointer;
+                if (GetConstantValueFromBlob(defaultValueType.type, metadata.Reader, out var blobValue))
+                {
+                    value = blobValue.Value;
+                    return true;
+                }
+                else
+                {
+                    value = pointer;
+                    return false;
+                }
             }
-            else
+            catch
             {
-                value = pointer;
                 return false;
             }
         }

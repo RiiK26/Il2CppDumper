@@ -27,5 +27,6 @@ namespace Il2CppDumper
         public bool EnablePointerDensityScanner { get; set; } = true;
         public double PointerDensityThreshold { get; set; } = 0.80;
         public bool EnableStringCrossReferencer { get; set; } = true;
+        public bool EnableMethodXrefs { get; set; } = true;
     }
 }

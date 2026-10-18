@@ -68,37 +68,129 @@ namespace Il2CppDumper
                 Array.Copy(fullMeta, hdr, 0x45C);
                 DecryptBuffer(hdr, 0, 0x45C, 0x4B2F264EBE63E6EFUL, KnownSBox);
 
-                // 2. Decrypt 7 tables
-                var tables = new (int szOff, int posOff, int adj, ulong seed, string name)[]
+                static int Align4(int val) => (val + 3) & ~3;
+                static int GetSize(byte[] h, int off, int fallback)
                 {
-                    (0x404, 0x3FC, 0x5B8, 0xCE95221D83AB368FUL, "Assemblies"),
-                    (0x2C0, 0x2B8, -0x800, 0x1CB57F2820593D8CUL, "Methods"),
-                    (0x41C, 0x414, 0xA0, 0x6EEEAEC7386673DEUL, "StringLiteralData"),
-                    (0x3B0, 0x3A8, 0x2BC, 0xA3052110067B4998UL, "Fields"),
-                    (0x1E8, 0x1E0, 0x1128, 0x86B5A56626F5BA62UL, "StringLiterals"),
-                    (0x2F0, 0x2E8, 0x15C0, 0x71B89F4648850532UL, "Strings"),
-                    (0x314, 0x30C, -0x5FC, 0x5E9FD334F32196BBUL, "Properties"),
+                    int s = (int)BitConverter.ToUInt32(h, off);
+                    return s > 0 ? s : fallback;
+                }
+
+                // 2. Dynamically calculate contiguous table offsets from 0x45C header sizes
+                int cur = 0x12F0;
+                int stringLiteralOffset = cur; int stringLiteralSize = GetSize(hdr, 0x1E8, 0x36CBC); cur = Align4(cur + stringLiteralSize);
+                int stringLiteralDataOffset = cur; int stringLiteralDataSize = GetSize(hdr, 0x41C, 0x1DA881); cur = Align4(cur + stringLiteralDataSize);
+                int stringOffset = cur; int stringSize = GetSize(hdr, 0x2F0, 0x53841D); cur = Align4(cur + stringSize);
+                int eventsOffset = cur; int eventsSize = GetSize(hdr, 0x0F8, 0xD5D8); cur = Align4(cur + eventsSize);
+                int propertiesOffset = cur; int propertiesSize = GetSize(hdr, 0x314, 0xC3690); cur = Align4(cur + propertiesSize);
+                int methodsOffset = cur; int methodsSize = GetSize(hdr, 0x2C0, 0x7151C0); cur = Align4(cur + methodsSize);
+                int parameterDefaultValuesOffset = cur; int parameterDefaultValuesSize = GetSize(hdr, 0x1D0, 0x12564); cur = Align4(cur + parameterDefaultValuesSize);
+                int fieldDefaultValuesOffset = cur; int fieldDefaultValuesSize = GetSize(hdr, 0x458, 0x5E41C); cur = Align4(cur + fieldDefaultValuesSize);
+                int rawDefaultValueDataSize = GetSize(hdr, 0x020, 0x1BC6FC);
+                int fieldAndParameterDefaultValueDataOffset = (cur + 4 < fullMeta.Length && BitConverter.ToUInt32(fullMeta, cur) == 0) ? cur + 4 : cur;
+                int fieldAndParameterDefaultValueDataSize = fieldAndParameterDefaultValueDataOffset > cur ? rawDefaultValueDataSize - 4 : rawDefaultValueDataSize;
+                cur = Align4(fieldAndParameterDefaultValueDataOffset + fieldAndParameterDefaultValueDataSize);
+                int fieldMarshaledSizesOffset = cur; int fieldMarshaledSizesSize = GetSize(hdr, 0x308, 0x23AFC); cur = Align4(cur + fieldMarshaledSizesSize);
+                int parametersOffset = cur; int parametersSize = GetSize(hdr, 0x260, 0x244F98);
+                if (parametersSize == 0x244F98) parametersSize = 0x244F9C;
+                cur = Align4(cur + parametersSize);
+                int fieldsOffset = cur; int fieldsSize = GetSize(hdr, 0x3B0, 0x1C28B8); cur = Align4(cur + fieldsSize);
+                int genericParametersOffset = cur; int genericParametersSize = GetSize(hdr, 0x38C, 0x12C82); cur = Align4(cur + genericParametersSize);
+                int genericParameterConstraintsOffset = cur; int genericParameterConstraintsSize = GetSize(hdr, 0x038, 0x17B4); cur = Align4(cur + genericParameterConstraintsSize);
+                int genericContainersOffset = cur; int genericContainersSize = GetSize(hdr, 0x23C, 0xE9E0); cur = Align4(cur + genericContainersSize);
+                int nestedTypesOffset = cur; int nestedTypesSize = GetSize(hdr, 0x05C, 0xB488); cur = Align4(cur + nestedTypesSize);
+                int interfacesOffset = cur; int interfacesSize = GetSize(hdr, 0x320, 0xB84C); cur = Align4(cur + interfacesSize);
+                int vtableMethodsOffset = cur; int vtableMethodsSize = GetSize(hdr, 0x2B4, 0x132F48); cur = Align4(cur + vtableMethodsSize);
+                int interfaceOffsetsOffset = cur; int interfaceOffsetsSize = GetSize(hdr, 0x428, 0x36938); cur = Align4(cur + interfaceOffsetsSize);
+
+                int typeCount = (int)BitConverter.ToUInt32(hdr, 0x364);
+                if (typeCount == 0) typeCount = 33945;
+                int typeDefinitionsSrcOffset = cur;
+                int typeDefinitionsSrcSize = typeCount * 82;
+                cur = Align4(cur + typeDefinitionsSrcSize);
+
+                int imageCount = (int)BitConverter.ToUInt32(hdr, 0x280);
+                if (imageCount == 0) imageCount = 145;
+                int imagesSrcOffset = cur;
+                int imagesSrcSize = imageCount * 36;
+                cur = Align4(cur + imagesSrcSize);
+
+                int assembliesOffset = cur; int assembliesSize = GetSize(hdr, 0x404, 0x2684); cur = Align4(cur + assembliesSize);
+                int fieldRefsOffset = cur; int fieldRefsSize = GetSize(hdr, 0x248, 0xCAA8); cur = Align4(cur + fieldRefsSize);
+                int referencedAssembliesOffset = cur; int referencedAssembliesSize = GetSize(hdr, 0x2A8, 0xD24); cur = Align4(cur + referencedAssembliesSize);
+                int attributeDataOffset = cur; int attributeDataSize = GetSize(hdr, 0x188, 0x178BE0); cur = Align4(cur + attributeDataSize);
+                int attributeDataRangeOffset = cur; int attributeDataRangeSize = GetSize(hdr, 0x35C, 0xA6DD8); cur = Align4(cur + attributeDataRangeSize);
+                int unresolvedTypesOffset = cur; int unresolvedTypesSize = GetSize(hdr, 0x0EC, 0x12014); cur = Align4(cur + unresolvedTypesSize);
+                int unresolvedRangesOffset = cur; int unresolvedRangesSize = GetSize(hdr, 0x104, 0x3768); cur = Align4(cur + unresolvedRangesSize);
+                int exportedTypesOffset = cur; int exportedTypesSize = GetSize(hdr, 0x44C, 0x3194); cur = Align4(cur + exportedTypesSize);
+
+                // 3. Decrypt 7 encrypted tables using dynamically calculated offsets
+                var encryptedTables = new (int pos, int size, ulong seed, string name)[]
+                {
+                    (assembliesOffset, assembliesSize, 0xCE95221D83AB368FUL, "Assemblies"),
+                    (methodsOffset, methodsSize, 0x1CB57F2820593D8CUL, "Methods"),
+                    (stringLiteralDataOffset, stringLiteralDataSize, 0x6EEEAEC7386673DEUL, "StringLiteralData"),
+                    (fieldsOffset, fieldsSize, 0xA3052110067B4998UL, "Fields"),
+                    (stringLiteralOffset, stringLiteralSize, 0x86B5A56626F5BA62UL, "StringLiterals"),
+                    (stringOffset, stringSize, 0x71B89F4648850532UL, "Strings"),
+                    (propertiesOffset, propertiesSize, 0x5E9FD334F32196BBUL, "Properties"),
                 };
 
-                foreach (var (szOff, posOff, adj, seed, _) in tables)
+                foreach (var (pos, size, seed, _) in encryptedTables)
                 {
-                    int size = (int)BitConverter.ToUInt32(hdr, szOff);
-                    int pos = (int)BitConverter.ToUInt32(hdr, posOff) + adj;
                     if (pos >= 0 && pos + size <= fullMeta.Length)
                     {
                         DecryptBuffer(fullMeta, pos, size, seed, KnownSBox);
                     }
                 }
 
-                // 3. Convert 82-byte TypeDefinition to 88-byte (v29)
-                int typeCount = (int)BitConverter.ToUInt32(hdr, 0x364);
-                if (typeCount == 0) typeCount = 33945;
-                int srcOff = 0x172C1B0;
-                byte[] convertedTypes = new byte[typeCount * 88];
+                // 4. Un-shuffle MethodDefinitions (32 bytes) from PG3D packed layout to standard v29 layout
+                int methodCount = methodsSize / 32;
+                byte[] convertedMethods = new byte[methodsSize];
+                for (int i = 0; i < methodCount; i++)
+                {
+                    int inBase = methodsOffset + i * 32;
+                    int outBase = i * 32;
 
+                    uint nameIdx = BitConverter.ToUInt32(fullMeta, inBase + 0);
+                    int declaringType = BitConverter.ToUInt16(fullMeta, inBase + 4);
+                    int returnType = (int)BitConverter.ToUInt32(fullMeta, inBase + 6);
+                    int paramStart = BitConverter.ToInt32(fullMeta, inBase + 14);
+                    int genContainer = (int)(short)BitConverter.ToInt16(fullMeta, inBase + 18);
+                    uint token = BitConverter.ToUInt32(fullMeta, inBase + 20);
+                    ushort flags = BitConverter.ToUInt16(fullMeta, inBase + 24);
+                    ushort iflags = BitConverter.ToUInt16(fullMeta, inBase + 26);
+                    ushort slot = BitConverter.ToUInt16(fullMeta, inBase + 28);
+                    ushort paramCount = BitConverter.ToUInt16(fullMeta, inBase + 30);
+
+                    BitConverter.GetBytes(nameIdx).CopyTo(convertedMethods, outBase + 0);
+                    BitConverter.GetBytes(declaringType).CopyTo(convertedMethods, outBase + 4);
+                    BitConverter.GetBytes(returnType).CopyTo(convertedMethods, outBase + 8);
+                    BitConverter.GetBytes(paramStart).CopyTo(convertedMethods, outBase + 12);
+                    BitConverter.GetBytes(genContainer).CopyTo(convertedMethods, outBase + 16);
+                    BitConverter.GetBytes(token).CopyTo(convertedMethods, outBase + 20);
+                    BitConverter.GetBytes(flags).CopyTo(convertedMethods, outBase + 24);
+                    BitConverter.GetBytes(iflags).CopyTo(convertedMethods, outBase + 26);
+                    BitConverter.GetBytes(slot).CopyTo(convertedMethods, outBase + 28);
+                    BitConverter.GetBytes(paramCount).CopyTo(convertedMethods, outBase + 30);
+                }
+                convertedMethods.CopyTo(fullMeta, methodsOffset);
+
+                // 5. Un-swap ParameterDefinitions (12 bytes: PG3D [name, type, token] -> standard v29 [name, token, type])
+                int paramDefCount = parametersSize / 12;
+                for (int i = 0; i < paramDefCount; i++)
+                {
+                    int pBase = parametersOffset + i * 12;
+                    uint typeIndex = BitConverter.ToUInt32(fullMeta, pBase + 4);
+                    uint token = BitConverter.ToUInt32(fullMeta, pBase + 8);
+                    BitConverter.GetBytes(token).CopyTo(fullMeta, pBase + 4);
+                    BitConverter.GetBytes(typeIndex).CopyTo(fullMeta, pBase + 8);
+                }
+
+                // 6. Convert 82-byte TypeDefinition to 88-byte (v29)
+                byte[] convertedTypes = new byte[typeCount * 88];
                 for (int i = 0; i < typeCount; i++)
                 {
-                    int inBase = srcOff + i * 82;
+                    int inBase = typeDefinitionsSrcOffset + i * 82;
                     int outBase = i * 88;
 
                     int nameIdx = BitConverter.ToInt32(fullMeta, inBase + 0);
@@ -128,13 +220,12 @@ namespace Il2CppDumper
                     Array.Copy(fullMeta, inBase + 0x4A, convertedTypes, outBase + 80, 8);
                 }
 
-                // 4. Scan for "<Module>" to map images
-                int stringsPos = 0x212830;
+                // 7. Scan for "<Module>" to map images
                 var modules = new List<int>();
                 for (int i = 0; i < typeCount; i++)
                 {
                     int nameIdx = BitConverter.ToInt32(convertedTypes, i * 88);
-                    int sOff = stringsPos + nameIdx;
+                    int sOff = stringOffset + nameIdx;
                     if (sOff >= 0 && sOff + 8 < fullMeta.Length)
                     {
                         if (fullMeta[sOff] == (byte)'<' &&
@@ -152,14 +243,11 @@ namespace Il2CppDumper
                     }
                 }
 
-                // 5. Convert images (36-byte to 40-byte v29)
-                int imageCount = 145;
-                int imgSrcOff = 0x19D3AB4;
+                // 8. Convert images (36-byte to 40-byte v29)
                 byte[] convertedImages = new byte[imageCount * 40];
-
                 for (int i = 0; i < imageCount; i++)
                 {
-                    int inImgBase = imgSrcOff + i * 36;
+                    int inImgBase = imagesSrcOffset + i * 36;
                     int outImgBase = i * 40;
 
                     uint nameIdx = BitConverter.ToUInt32(fullMeta, inImgBase + 0);
@@ -194,44 +282,109 @@ namespace Il2CppDumper
                     BitConverter.GetBytes(0u).CopyTo(convertedImages, outImgBase + 36);          // customAttributeCount
                 }
 
-                // 6. Assemble reconstructed v29 metadata buffer
+                // 9. Convert generic parameters (14-byte PG3D to 16-byte standard v29)
+                int genericParamCount = genericParametersSize / 14;
+                byte[] convertedGenericParams = new byte[genericParamCount * 16];
+                for (int i = 0; i < genericParamCount; i++)
+                {
+                    int inBase = genericParametersOffset + i * 14;
+                    int outBase = i * 16;
+                    ushort ownerIndex = BitConverter.ToUInt16(fullMeta, inBase + 0);
+                    uint nameIndex = BitConverter.ToUInt32(fullMeta, inBase + 2);
+                    short constraintsStart = BitConverter.ToInt16(fullMeta, inBase + 6);
+                    short constraintsCount = BitConverter.ToInt16(fullMeta, inBase + 8);
+                    ushort num = BitConverter.ToUInt16(fullMeta, inBase + 10);
+                    ushort flags = BitConverter.ToUInt16(fullMeta, inBase + 12);
+
+                    BitConverter.GetBytes((uint)ownerIndex).CopyTo(convertedGenericParams, outBase + 0);
+                    BitConverter.GetBytes(nameIndex).CopyTo(convertedGenericParams, outBase + 4);
+                    BitConverter.GetBytes(constraintsStart).CopyTo(convertedGenericParams, outBase + 8);
+                    BitConverter.GetBytes(constraintsCount).CopyTo(convertedGenericParams, outBase + 10);
+                    BitConverter.GetBytes(num).CopyTo(convertedGenericParams, outBase + 12);
+                    BitConverter.GetBytes(flags).CopyTo(convertedGenericParams, outBase + 14);
+                }
+
+                // 10. Assemble reconstructed v29 metadata buffer
                 int origLen = fullMeta.Length;
                 int newTypedefPos = origLen;
                 int newTypedefSize = convertedTypes.Length;
                 int newImgPos = origLen + newTypedefSize;
                 int newImgSize = convertedImages.Length;
+                int newGenericParamPos = origLen + newTypedefSize + newImgSize;
+                int newGenericParamSize = convertedGenericParams.Length;
 
-                byte[] reconstructed = new byte[origLen + newTypedefSize + newImgSize];
+                byte[] reconstructed = new byte[origLen + newTypedefSize + newImgSize + newGenericParamSize];
                 Array.Copy(fullMeta, reconstructed, origLen);
                 Array.Copy(convertedTypes, 0, reconstructed, newTypedefPos, newTypedefSize);
                 Array.Copy(convertedImages, 0, reconstructed, newImgPos, newImgSize);
+                Array.Copy(convertedGenericParams, 0, reconstructed, newGenericParamPos, newGenericParamSize);
 
-                // 7. Write standard v29 header (512 bytes / 128 uints)
+                // 11. Write complete standard v29 header (128 uints / 512 bytes)
                 uint[] headerList = new uint[128];
                 headerList[0] = 0xFAB11BAF; // sanity
                 headerList[1] = 29;         // version
-                headerList[2] = 0x12F0;     // stringLiteralOffset
-                headerList[3] = 0x36CBC;    // stringLiteralSize
-                headerList[4] = 0x37FAC;    // stringLiteralDataOffset
-                headerList[5] = 0x1DA881;   // stringLiteralDataSize
-                headerList[6] = 0x212830;   // stringOffset
-                headerList[7] = 0x53841D;   // stringSize
-                headerList[8] = 0x74AC50;   // eventsOffset
-                headerList[9] = 0xD5D8;     // eventsSize
-                headerList[10] = 0x758228;  // propertiesOffset
-                headerList[11] = 0xC3690;   // propertiesSize
-                headerList[12] = 0x81B8B8;  // methodsOffset
-                headerList[13] = 0x7151C0;  // methodsSize
-                headerList[22] = 0xF30A80;  // parametersOffset
-                headerList[23] = 0x13C658C - 0xF30A80; // parametersSize
-                headerList[24] = 0x13C658C; // fieldsOffset
-                headerList[25] = 0x1C28B8;  // fieldsSize
+                headerList[2] = (uint)stringLiteralOffset;
+                headerList[3] = (uint)stringLiteralSize;
+                headerList[4] = (uint)stringLiteralDataOffset;
+                headerList[5] = (uint)stringLiteralDataSize;
+                headerList[6] = (uint)stringOffset;
+                headerList[7] = (uint)stringSize;
+                headerList[8] = (uint)eventsOffset;
+                headerList[9] = (uint)eventsSize;
+                headerList[10] = (uint)propertiesOffset;
+                headerList[11] = (uint)propertiesSize;
+                headerList[12] = (uint)methodsOffset;
+                headerList[13] = (uint)methodsSize;
+                headerList[14] = (uint)parameterDefaultValuesOffset;
+                headerList[15] = (uint)parameterDefaultValuesSize;
+                headerList[16] = (uint)fieldDefaultValuesOffset;
+                headerList[17] = (uint)fieldDefaultValuesSize;
+                headerList[18] = (uint)fieldAndParameterDefaultValueDataOffset;
+                headerList[19] = (uint)fieldAndParameterDefaultValueDataSize;
+                headerList[20] = (uint)fieldMarshaledSizesOffset;
+                headerList[21] = (uint)fieldMarshaledSizesSize;
+                headerList[22] = (uint)parametersOffset;
+                headerList[23] = (uint)parametersSize;
+                headerList[24] = (uint)fieldsOffset;
+                headerList[25] = (uint)fieldsSize;
+                headerList[26] = (uint)newGenericParamPos;
+                headerList[27] = (uint)newGenericParamSize;
+                headerList[28] = (uint)genericParameterConstraintsOffset;
+                headerList[29] = (uint)genericParameterConstraintsSize;
+                headerList[30] = (uint)genericContainersOffset;
+                headerList[31] = (uint)genericContainersSize;
+                headerList[32] = (uint)nestedTypesOffset;
+                headerList[33] = (uint)nestedTypesSize;
+                headerList[34] = (uint)interfacesOffset;
+                headerList[35] = (uint)interfacesSize;
+                headerList[36] = (uint)vtableMethodsOffset;
+                headerList[37] = (uint)vtableMethodsSize;
+                headerList[38] = (uint)interfaceOffsetsOffset;
+                headerList[39] = (uint)interfaceOffsetsSize;
                 headerList[40] = (uint)newTypedefPos;
                 headerList[41] = (uint)newTypedefSize;
                 headerList[42] = (uint)newImgPos;
                 headerList[43] = (uint)newImgSize;
-                headerList[44] = 0x19D4F18; // assembliesOffset
-                headerList[45] = 0x2684;    // assembliesSize
+                headerList[44] = (uint)assembliesOffset;
+                headerList[45] = (uint)assembliesSize;
+                headerList[46] = (uint)fieldRefsOffset;
+                headerList[47] = (uint)fieldRefsSize;
+                headerList[48] = (uint)referencedAssembliesOffset;
+                headerList[49] = (uint)referencedAssembliesSize;
+                headerList[50] = (uint)attributeDataOffset;
+                headerList[51] = (uint)attributeDataSize;
+                headerList[52] = (uint)attributeDataRangeOffset;
+                headerList[53] = (uint)attributeDataRangeSize;
+                headerList[54] = (uint)unresolvedTypesOffset;
+                headerList[55] = (uint)unresolvedTypesSize;
+                headerList[56] = (uint)unresolvedRangesOffset;
+                headerList[57] = (uint)unresolvedRangesSize;
+                headerList[58] = 0; // windowsRuntimeTypeNamesOffset
+                headerList[59] = 0; // windowsRuntimeTypeNamesSize
+                headerList[60] = 0; // windowsRuntimeStringsOffset
+                headerList[61] = 0; // windowsRuntimeStringsSize
+                headerList[62] = (uint)exportedTypesOffset;
+                headerList[63] = (uint)exportedTypesSize;
 
                 for (int i = 0; i < headerList.Length; i++)
                 {
@@ -239,7 +392,7 @@ namespace Il2CppDumper
                 }
 
                 result = reconstructed;
-                info = $"Pixel Gun 3D custom encrypted metadata detected. Decrypted 7 tables, converted {typeCount} TypeDefinitions (82->88 byte) and {imageCount} Images ({modules.Count} modules mapped), generated standard v29 metadata buffer ({reconstructed.Length} bytes).";
+                info = $"Pixel Gun 3D custom encrypted metadata detected. Decrypted 7 tables, un-shuffled {methodCount} Methods & {paramDefCount} Parameters, mapped all v29 tables (Generics, Interfaces, Constants), converted {typeCount} TypeDefinitions (82->88b) & {imageCount} Images ({modules.Count} modules), generated standard v29 metadata buffer ({reconstructed.Length} bytes).";
                 return true;
             }
             catch (Exception ex)

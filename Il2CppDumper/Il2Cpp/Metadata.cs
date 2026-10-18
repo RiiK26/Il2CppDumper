@@ -148,6 +148,13 @@ namespace Il2CppDumper
                 parameterDefs = ReadMetadataClassArray<Il2CppParameterDefinition>(header.parametersOffset, header.parametersSize);
                 fieldDefs = ReadMetadataClassArray<Il2CppFieldDefinition>(header.fieldsOffset, header.fieldsSize);
             }
+            if (typeDefs != null)
+            {
+                for (int i = 0; i < typeDefs.Length; i++)
+                {
+                    typeDefs[i].typeDefIndex = i;
+                }
+            }
             var fieldDefaultValues = Version >= 38
                 ? ReadMetadataClassArray<Il2CppFieldDefaultValue>(header.fieldDefaultValues)
                 : ReadMetadataClassArray<Il2CppFieldDefaultValue>(header.fieldDefaultValuesOffset, header.fieldDefaultValuesSize);

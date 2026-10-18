@@ -35,6 +35,7 @@ namespace Il2CppDumper
         private Dictionary<string, Dictionary<uint, Il2CppRGCTXDefinition[]>> normalizedRGCTXDataDictionary;
         public Dictionary<string, Dictionary<uint, Il2CppRGCTXDefinition[]>> rgctxsDictionary;
         public bool IsDumped;
+        public byte[] RawBytes { get; set; }
 
         public abstract ulong MapVATR(ulong addr);
         public abstract ulong MapRTVA(ulong addr);

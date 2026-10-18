@@ -23,5 +23,6 @@
   "MetadataMemoryBase": 0,
   "EnablePointerDensityScanner": true,
   "PointerDensityThreshold": 0.8,
-  "EnableStringCrossReferencer": true
+  "EnableStringCrossReferencer": true,
+  "EnableMethodXrefs": true
 }
